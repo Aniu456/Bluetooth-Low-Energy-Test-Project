@@ -58,18 +58,26 @@ class _ClassicDeviceScreenState extends State<ClassicDeviceScreen> {
       _addLog('收到', data);
     });
 
-    _addLog('系统', '已连接到 ${widget.device.name ?? widget.device.address}', isSystem: true);
+    _addLog(
+      '系统',
+      '已连接到 ${widget.device.name ?? widget.device.address}',
+      isSystem: true,
+    );
   }
 
   /// 添加日志
   void _addLog(String direction, dynamic data, {bool isSystem = false}) {
     setState(() {
-      _logs.add(_LogEntry(
-        direction: direction,
-        data: data is Uint8List ? data : Uint8List.fromList(utf8.encode(data.toString())),
-        timestamp: DateTime.now(),
-        isSystem: isSystem,
-      ));
+      _logs.add(
+        _LogEntry(
+          direction: direction,
+          data: data is Uint8List
+              ? data
+              : Uint8List.fromList(utf8.encode(data.toString())),
+          timestamp: DateTime.now(),
+          isSystem: isSystem,
+        ),
+      );
     });
 
     // 自动滚动到底部
@@ -103,9 +111,9 @@ class _ClassicDeviceScreenState extends State<ClassicDeviceScreen> {
         }
         data = Uint8List.fromList(bytes);
       } catch (e) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('无效的十六进制格式')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('无效的十六进制格式')));
         return;
       }
     } else {
@@ -120,9 +128,9 @@ class _ClassicDeviceScreenState extends State<ClassicDeviceScreen> {
       _addLog('发送', data);
       _inputController.clear();
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('发送失败')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('发送失败')));
     }
   }
 
@@ -175,10 +183,16 @@ class _ClassicDeviceScreenState extends State<ClassicDeviceScreen> {
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(widget.device.name ?? '未知设备', style: const TextStyle(fontSize: 16)),
+            Text(
+              widget.device.name ?? '未知设备',
+              style: const TextStyle(fontSize: 16),
+            ),
             Text(
               widget.device.address,
-              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.normal),
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.normal,
+              ),
             ),
           ],
         ),
@@ -219,9 +233,7 @@ class _ClassicDeviceScreenState extends State<ClassicDeviceScreen> {
           _buildQuickSendBar(),
 
           // 日志显示区域
-          Expanded(
-            child: _buildLogArea(),
-          ),
+          Expanded(child: _buildLogArea()),
 
           // 发送选项
           _buildSendOptions(),
@@ -236,38 +248,61 @@ class _ClassicDeviceScreenState extends State<ClassicDeviceScreen> {
   /// 构建快捷发送栏
   Widget _buildQuickSendBar() {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      color: Colors.grey[100],
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(
+      color: Colors.white,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      child: SizedBox(
+        height: 36,
+        child: ListView(
+          scrollDirection: Axis.horizontal,
           children: [
             _buildQuickButton('AT', () => _quickSend('AT')),
             _buildQuickButton('OK', () => _quickSend('OK')),
             _buildQuickButton('AT+VERSION', () => _quickSend('AT+VERSION')),
             _buildQuickButton('AT+NAME', () => _quickSend('AT+NAME')),
-            _buildQuickButton('0x00', () => _quickSendHex([0x00])),
-            _buildQuickButton('0xFF', () => _quickSendHex([0xFF])),
+            const VerticalDivider(width: 24),
+            _buildQuickButton(
+              'Hex: 00',
+              () => _quickSendHex([0x00]),
+              isHex: true,
+            ),
+            _buildQuickButton(
+              'Hex: FF',
+              () => _quickSendHex([0xFF]),
+              isHex: true,
+            ),
             _buildQuickButton('Hello', () => _quickSend('Hello')),
-            _buildQuickButton('\\r\\n', () => _quickSendHex([0x0D, 0x0A])),
+            _buildQuickButton(
+              '\\r\\n',
+              () => _quickSendHex([0x0D, 0x0A]),
+              isHex: true,
+            ),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildQuickButton(String label, VoidCallback onPressed) {
+  Widget _buildQuickButton(
+    String label,
+    VoidCallback onPressed, {
+    bool isHex = false,
+  }) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 4),
-      child: ElevatedButton(
+      padding: const EdgeInsets.only(right: 8),
+      child: ActionChip(
+        label: Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            color: isHex ? Colors.purple[700] : Colors.black87,
+          ),
+        ),
+        backgroundColor: isHex ? Colors.purple[50] : Colors.grey[100],
+        padding: EdgeInsets.zero,
+        visualDensity: VisualDensity.compact,
         onPressed: _connectionState == BluetoothConnectionState.connected
             ? onPressed
             : null,
-        style: ElevatedButton.styleFrom(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          minimumSize: Size.zero,
-        ),
-        child: Text(label, style: const TextStyle(fontSize: 12)),
       ),
     );
   }
@@ -302,105 +337,80 @@ class _ClassicDeviceScreenState extends State<ClassicDeviceScreen> {
     final isReceived = log.direction == '收到';
     final isSystem = log.isSystem;
 
-    Color bgColor;
-    Color textColor;
-    IconData icon;
-
     if (isSystem) {
-      bgColor = Colors.grey[200]!;
-      textColor = Colors.grey[700]!;
-      icon = Icons.info_outline;
-    } else if (isReceived) {
-      bgColor = Colors.blue[50]!;
-      textColor = Colors.blue[900]!;
-      icon = Icons.arrow_downward;
-    } else {
-      bgColor = Colors.green[50]!;
-      textColor = Colors.green[900]!;
-      icon = Icons.arrow_upward;
+      final systemText = _formatText(log.data);
+      return Center(
+        child: Container(
+          margin: const EdgeInsets.symmetric(vertical: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+          decoration: BoxDecoration(
+            color: Colors.grey[200],
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Text(
+            systemText,
+            style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+          ),
+        ),
+      );
     }
 
-    final timeStr =
-        '${log.timestamp.hour.toString().padLeft(2, '0')}:'
-        '${log.timestamp.minute.toString().padLeft(2, '0')}:'
-        '${log.timestamp.second.toString().padLeft(2, '0')}.'
-        '${log.timestamp.millisecond.toString().padLeft(3, '0')}';
-
-    return Card(
-      color: bgColor,
-      margin: const EdgeInsets.symmetric(vertical: 4),
-      child: Padding(
+    return Align(
+      alignment: isReceived ? Alignment.centerLeft : Alignment.centerRight,
+      child: Container(
+        margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
         padding: const EdgeInsets.all(12),
+        constraints: BoxConstraints(
+          maxWidth: MediaQuery.of(context).size.width * 0.75,
+        ),
+        decoration: BoxDecoration(
+          color: isReceived ? Colors.white : Theme.of(context).primaryColor,
+          borderRadius: BorderRadius.circular(12).copyWith(
+            topLeft: isReceived ? Radius.zero : const Radius.circular(12),
+            topRight: !isReceived ? Radius.zero : const Radius.circular(12),
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.05),
+              blurRadius: 2,
+              offset: const Offset(0, 1),
+            ),
+          ],
+        ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // 头部
-            Row(
-              children: [
-                Icon(icon, size: 16, color: textColor),
-                const SizedBox(width: 4),
-                Text(
-                  log.direction,
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    color: textColor,
-                  ),
-                ),
-                const Spacer(),
-                Text(
-                  '${log.data.length} bytes',
-                  style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  timeStr,
-                  style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-                ),
-              ],
+            Text(
+              _formatText(log.data),
+              style: TextStyle(
+                color: isReceived ? Colors.black87 : Colors.white,
+                fontSize: 15,
+              ),
             ),
-
-            if (!isSystem) ...[
-              const SizedBox(height: 8),
-              // HEX 格式
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(4),
-                ),
-                child: Text(
-                  'HEX: ${_formatHex(log.data)}',
-                  style: const TextStyle(
-                    fontFamily: 'monospace',
-                    fontSize: 12,
-                  ),
+            const SizedBox(height: 4),
+            Text(
+              'HEX: ${_formatHex(log.data)}',
+              style: TextStyle(
+                color: isReceived
+                    ? Colors.grey[500]
+                    : Colors.white.withValues(alpha: 0.7),
+                fontSize: 10,
+                fontFamily: 'monospace',
+              ),
+            ),
+            const SizedBox(height: 2),
+            Align(
+              alignment: Alignment.bottomRight,
+              child: Text(
+                '${log.timestamp.hour}:${log.timestamp.minute.toString().padLeft(2, '0')}:${log.timestamp.second.toString().padLeft(2, '0')}',
+                style: TextStyle(
+                  color: isReceived
+                      ? Colors.grey[400]
+                      : Colors.white.withValues(alpha: 0.6),
+                  fontSize: 10,
                 ),
               ),
-              const SizedBox(height: 4),
-              // 文本格式
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(4),
-                ),
-                child: Text(
-                  'TXT: ${_formatText(log.data)}',
-                  style: const TextStyle(
-                    fontFamily: 'monospace',
-                    fontSize: 12,
-                  ),
-                ),
-              ),
-            ] else ...[
-              const SizedBox(height: 4),
-              Text(
-                _formatText(log.data),
-                style: TextStyle(color: textColor),
-              ),
-            ],
+            ),
           ],
         ),
       ),
@@ -408,12 +418,15 @@ class _ClassicDeviceScreenState extends State<ClassicDeviceScreen> {
   }
 
   String _formatHex(Uint8List data) {
-    return data.map((b) => b.toRadixString(16).padLeft(2, '0').toUpperCase()).join(' ');
+    return data
+        .map((b) => b.toRadixString(16).padLeft(2, '0').toUpperCase())
+        .join(' ');
   }
 
   String _formatText(Uint8List data) {
     try {
-      return utf8.decode(data, allowMalformed: true)
+      return utf8
+          .decode(data, allowMalformed: true)
           .replaceAll('\r', '\\r')
           .replaceAll('\n', '\\n')
           .replaceAll('\t', '\\t');
@@ -467,38 +480,53 @@ class _ClassicDeviceScreenState extends State<ClassicDeviceScreen> {
   /// 构建输入区域
   Widget _buildInputArea() {
     return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.grey[100],
-        border: Border(top: BorderSide(color: Colors.grey[300]!)),
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        border: Border(top: BorderSide(color: Colors.black12)),
       ),
-      child: Row(
-        children: [
-          Expanded(
-            child: TextField(
-              controller: _inputController,
-              decoration: InputDecoration(
-                hintText: _hexMode ? '输入十六进制数据...' : '输入文本消息...',
-                border: OutlineInputBorder(
+      child: SafeArea(
+        top: false,
+        child: Row(
+          children: [
+            Expanded(
+              child: Container(
+                decoration: BoxDecoration(
+                  color: Colors.grey[100],
                   borderRadius: BorderRadius.circular(24),
                 ),
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 12,
+                child: TextField(
+                  controller: _inputController,
+                  decoration: InputDecoration(
+                    hintText: _hexMode ? ' HEX...' : ' Message...',
+                    border: InputBorder.none,
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 12,
+                    ),
+                    isDense: true,
+                  ),
+                  onSubmitted: (_) => _sendData(),
                 ),
               ),
-              onSubmitted: (_) => _sendData(),
             ),
-          ),
-          const SizedBox(width: 8),
-          FloatingActionButton(
-            onPressed: _connectionState == BluetoothConnectionState.connected
-                ? _sendData
-                : null,
-            mini: true,
-            child: const Icon(Icons.send),
-          ),
-        ],
+            const SizedBox(width: 8),
+            Container(
+              decoration: BoxDecoration(
+                color: Theme.of(context).primaryColor,
+                shape: BoxShape.circle,
+              ),
+              child: IconButton(
+                onPressed:
+                    _connectionState == BluetoothConnectionState.connected
+                    ? _sendData
+                    : null,
+                icon: const Icon(Icons.send_rounded, color: Colors.white),
+                tooltip: 'Send',
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

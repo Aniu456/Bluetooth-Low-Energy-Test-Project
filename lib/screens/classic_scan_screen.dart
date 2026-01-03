@@ -5,6 +5,8 @@ import 'package:flutter_bluetooth_serial/flutter_bluetooth_serial.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../services/classic_bluetooth_service.dart';
+import '../widgets/device_list_item.dart';
+import '../widgets/status_card.dart';
 import 'classic_device_screen.dart';
 
 /// 经典蓝牙扫描界面
@@ -38,19 +40,20 @@ class _ClassicScanScreenState extends State<ClassicScanScreen> {
   }
 
   Future<void> _init() async {
-    await _requestPermissions();
-    await _checkBluetoothState();
-    await _loadBondedDevices();
+    final granted = await _requestPermissions();
+    if (granted) {
+      await _checkBluetoothState();
+      await _loadBondedDevices();
+    }
     _setupSubscriptions();
   }
 
   /// 请求权限
-  Future<void> _requestPermissions() async {
+  Future<bool> _requestPermissions() async {
     // Android 12+ 需要的权限
     final permissions = <Permission>[
       Permission.bluetoothScan,
       Permission.bluetoothConnect,
-      Permission.locationWhenInUse,
     ];
 
     // 请求权限
@@ -63,23 +66,18 @@ class _ClassicScanScreenState extends State<ClassicScanScreen> {
     }
 
     final scanGranted = checkPermission(statuses[Permission.bluetoothScan]);
-    final connectGranted = checkPermission(statuses[Permission.bluetoothConnect]);
-    final locationGranted = checkPermission(statuses[Permission.locationWhenInUse]);
-
-    // 经典蓝牙扫描需要位置权限
-    final allGranted = scanGranted && connectGranted && locationGranted;
+    final connectGranted = checkPermission(
+      statuses[Permission.bluetoothConnect],
+    );
+    final allGranted = scanGranted && connectGranted;
 
     if (mounted) {
       setState(() {
         _permissionGranted = allGranted;
       });
-
-      // 权限授予后继续初始化
-      if (allGranted) {
-        await _checkBluetoothState();
-        await _loadBondedDevices();
-      }
     }
+
+    return allGranted;
   }
 
   /// 检查蓝牙状态
@@ -141,16 +139,15 @@ class _ClassicScanScreenState extends State<ClassicScanScreen> {
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder:
-          (context) => const AlertDialog(
-            content: Row(
-              children: [
-                CircularProgressIndicator(),
-                SizedBox(width: 16),
-                Text('正在连接...'),
-              ],
-            ),
-          ),
+      builder: (context) => const AlertDialog(
+        content: Row(
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(width: 16),
+            Text('正在连接...'),
+          ],
+        ),
+      ),
     );
 
     final success = await _btService.connect(device);
@@ -194,21 +191,20 @@ class _ClassicScanScreenState extends State<ClassicScanScreen> {
   Future<void> _removeBond(BluetoothDevice device) async {
     final confirm = await showDialog<bool>(
       context: context,
-      builder:
-          (context) => AlertDialog(
-            title: const Text('取消配对'),
-            content: Text('确定要取消与 ${device.name ?? "设备"} 的配对吗？'),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context, false),
-                child: const Text('取消'),
-              ),
-              TextButton(
-                onPressed: () => Navigator.pop(context, true),
-                child: const Text('确定'),
-              ),
-            ],
+      builder: (context) => AlertDialog(
+        title: const Text('取消配对'),
+        content: Text('确定要取消与 ${device.name ?? "设备"} 的配对吗？'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('取消'),
           ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('确定'),
+          ),
+        ],
+      ),
     );
 
     if (confirm == true) {
@@ -246,24 +242,6 @@ class _ClassicScanScreenState extends State<ClassicScanScreen> {
         ],
       ),
       body: _buildBody(),
-      floatingActionButton:
-          _isBluetoothEnabled
-              ? FloatingActionButton.extended(
-                onPressed: _toggleDiscovery,
-                icon:
-                    _isDiscovering
-                        ? const SizedBox(
-                          width: 24,
-                          height: 24,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Colors.white,
-                          ),
-                        )
-                        : const Icon(Icons.search),
-                label: Text(_isDiscovering ? '停止扫描' : '扫描设备'),
-              )
-              : null,
     );
   }
 
@@ -276,10 +254,10 @@ class _ClassicScanScreenState extends State<ClassicScanScreen> {
           children: [
             const Icon(Icons.bluetooth_disabled, size: 64, color: Colors.grey),
             const SizedBox(height: 16),
-            const Text('需要蓝牙和位置权限'),
+            const Text('需要蓝牙权限'),
             const SizedBox(height: 8),
             const Text(
-              '经典蓝牙扫描需要位置权限',
+              '请授予蓝牙权限以扫描设备',
               style: TextStyle(fontSize: 12, color: Colors.grey),
             ),
             const SizedBox(height: 16),
@@ -317,149 +295,196 @@ class _ClassicScanScreenState extends State<ClassicScanScreen> {
     }
 
     // 设备列表
-    return RefreshIndicator(
-      onRefresh: () async {
-        await _loadBondedDevices();
-      },
-      child: ListView(
-        children: [
-          // 状态信息
-          _buildStatusCard(),
+    return Column(
+      children: [
+        // 状态信息
+        _buildStatusCard(),
 
-          // 已配对设备
-          if (_bondedDevices.isNotEmpty) ...[
-            const Padding(
-              padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
-              child: Text(
-                '已配对设备',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-              ),
-            ),
-            ..._bondedDevices.map(
-              (device) => _buildDeviceCard(device, isBonded: true),
-            ),
-          ],
-
-          // 发现的设备
-          if (_discoveredDevices.isNotEmpty) ...[
-            const Padding(
-              padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
-              child: Text(
-                '发现的设备',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-              ),
-            ),
-            ..._discoveredDevices.map(
-              (device) => _buildDeviceCard(device, isBonded: false),
-            ),
-          ],
-
-          // 空状态提示
-          if (_bondedDevices.isEmpty && _discoveredDevices.isEmpty)
-            const Padding(
-              padding: EdgeInsets.all(32),
-              child: Center(
-                child: Column(
-                  children: [
-                    Icon(Icons.bluetooth_searching, size: 64, color: Colors.grey),
-                    SizedBox(height: 16),
-                    Text('点击右下角按钮开始扫描设备', style: TextStyle(color: Colors.grey)),
-                  ],
+        // 扫描按钮
+        Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Row(
+            children: [
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: _isDiscovering ? null : _toggleDiscovery,
+                  icon: _isDiscovering
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.search),
+                  label: Text(_isDiscovering ? '扫描中...' : '开始扫描'),
                 ),
               ),
+              const SizedBox(width: 16),
+              ElevatedButton(
+                onPressed: _isDiscovering ? _toggleDiscovery : null,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.red[100],
+                ),
+                child: const Text('停止'),
+              ),
+            ],
+          ),
+        ),
+
+        // 列表区域
+        Expanded(
+          child: RefreshIndicator(
+            onRefresh: () async {
+              await _loadBondedDevices();
+            },
+            child: ListView(
+              children: [
+                // 已配对设备
+                if (_bondedDevices.isNotEmpty) ...[
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.link, size: 16, color: Colors.blue),
+                        const SizedBox(width: 8),
+                        Text(
+                          '已配对设备 (${_bondedDevices.length})',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.grey[700],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  ..._bondedDevices.map(
+                    (device) => _buildDeviceCard(device, isBonded: true),
+                  ),
+                ],
+
+                // 发现的设备
+                if (_discoveredDevices.isNotEmpty) ...[
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 24, 20, 8),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.radar, size: 16, color: Colors.orange),
+                        const SizedBox(width: 8),
+                        Text(
+                          '发现的设备 (${_discoveredDevices.length})',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.grey[700],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  ..._discoveredDevices.map(
+                    (device) => _buildDeviceCard(device, isBonded: false),
+                  ),
+                ],
+
+                // 空状态提示
+                if (_bondedDevices.isEmpty && _discoveredDevices.isEmpty)
+                  Padding(
+                    padding: const EdgeInsets.all(48),
+                    child: Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.bluetooth_searching,
+                            size: 80,
+                            color: Colors.grey[300],
+                          ),
+                          const SizedBox(height: 24),
+                          Text(
+                            '点击"开始扫描"搜索附近设备',
+                            style: TextStyle(color: Colors.grey[500]),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+
+                // 底部留白
+                const SizedBox(height: 32),
+              ],
             ),
-        ],
-      ),
+          ),
+        ),
+      ],
     );
   }
 
   /// 构建状态卡片
   Widget _buildStatusCard() {
-    return Card(
-      margin: const EdgeInsets.all(16),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(
-                  _isBluetoothEnabled ? Icons.bluetooth : Icons.bluetooth_disabled,
-                  color: _isBluetoothEnabled ? Colors.blue : Colors.grey,
-                ),
-                const SizedBox(width: 8),
-                Text(_isBluetoothEnabled ? '蓝牙已开启' : '蓝牙未开启'),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Icon(
-                  _isDiscovering ? Icons.radar : Icons.search_off,
-                  color: _isDiscovering ? Colors.orange : Colors.grey,
-                ),
-                const SizedBox(width: 8),
-                Text(_isDiscovering ? '正在扫描...' : '未在扫描'),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Text('已配对: ${_bondedDevices.length}  发现: ${_discoveredDevices.length}'),
-          ],
+    return StatusCard(
+      title: '状态信息',
+      children: [
+        StatusRow(
+          label: '蓝牙状态',
+          value: _isBluetoothEnabled ? '已开启' : '未开启',
+          color: _isBluetoothEnabled ? Colors.green : Colors.grey,
+          icon: _isBluetoothEnabled
+              ? Icons.bluetooth
+              : Icons.bluetooth_disabled,
         ),
-      ),
+        StatusRow(
+          label: '扫描状态',
+          value: _isDiscovering ? '扫描中' : '未扫描',
+          color: _isDiscovering ? Colors.orange : Colors.grey,
+          icon: _isDiscovering ? Icons.radar : Icons.search_off,
+        ),
+        StatusRow(
+          label: '设备数量',
+          value:
+              '配对: ${_bondedDevices.length} / 发现: ${_discoveredDevices.length}',
+          color: Colors.blue,
+        ),
+      ],
     );
   }
 
   /// 构建设备卡片
   Widget _buildDeviceCard(BluetoothDevice device, {required bool isBonded}) {
-    return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      child: ListTile(
-        leading: CircleAvatar(
-          backgroundColor: isBonded ? Colors.blue : Colors.grey,
-          child: Text(
-            device.type.icon,
-            style: const TextStyle(fontSize: 20),
-          ),
+    return DeviceListItem(
+      name: device.name ?? '未知设备',
+      id: device.address,
+      leading: CircleAvatar(
+        backgroundColor: isBonded ? Colors.blue : Colors.grey,
+        child: Text(device.type.icon, style: const TextStyle(fontSize: 20)),
+      ),
+      subtitle: Text(
+        '${device.type.displayName} · ${device.bondState.displayName}',
+        style: TextStyle(
+          color: isBonded ? Colors.blue : Colors.grey,
+          fontSize: 12,
         ),
-        title: Text(device.name ?? '未知设备'),
-        subtitle: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(device.address),
-            Text(
-              '${device.type.displayName} · ${device.bondState.displayName}',
-              style: TextStyle(
-                color: isBonded ? Colors.blue : Colors.grey,
-                fontSize: 12,
-              ),
-            ),
-          ],
-        ),
-        isThreeLine: true,
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (!isBonded)
-              IconButton(
-                icon: const Icon(Icons.link),
-                tooltip: '配对',
-                onPressed: () => _bondDevice(device),
-              ),
-            if (isBonded)
-              IconButton(
-                icon: const Icon(Icons.link_off),
-                tooltip: '取消配对',
-                onPressed: () => _removeBond(device),
-              ),
+      ),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (!isBonded)
             IconButton(
-              icon: const Icon(Icons.bluetooth_connected),
-              tooltip: '连接',
-              onPressed: () => _connectDevice(device),
+              icon: const Icon(Icons.link),
+              tooltip: '配对',
+              onPressed: () => _bondDevice(device),
             ),
-          ],
-        ),
+          if (isBonded)
+            IconButton(
+              icon: const Icon(Icons.link_off),
+              tooltip: '取消配对',
+              onPressed: () => _removeBond(device),
+            ),
+          IconButton(
+            icon: const Icon(Icons.bluetooth_connected),
+            tooltip: '连接',
+            onPressed: () => _connectDevice(device),
+          ),
+        ],
       ),
     );
   }

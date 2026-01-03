@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 
 import '../services/ble_service.dart';
+import '../widgets/device_list_item.dart';
+import '../widgets/status_card.dart';
 import 'device_detail_screen.dart';
 
 /// 设备扫描页面 - 展示蓝牙扫描功能
@@ -24,6 +26,7 @@ class _ScanScreenState extends State<ScanScreen> {
 
   StreamSubscription? _scanResultsSubscription;
   StreamSubscription? _isScanningSubscription;
+  StreamSubscription<BluetoothAdapterState>? _adapterStateSubscription;
 
   @override
   void initState() {
@@ -53,7 +56,8 @@ class _ScanScreenState extends State<ScanScreen> {
     });
 
     // 监听蓝牙状态变化
-    FlutterBluePlus.adapterState.listen((state) {
+    _adapterStateSubscription = FlutterBluePlus.adapterState.listen((state) {
+      if (!mounted) return;
       setState(() {
         _bluetoothOn = state == BluetoothAdapterState.on;
       });
@@ -66,6 +70,7 @@ class _ScanScreenState extends State<ScanScreen> {
   void dispose() {
     _scanResultsSubscription?.cancel();
     _isScanningSubscription?.cancel();
+    _adapterStateSubscription?.cancel();
     super.dispose();
   }
 
@@ -102,9 +107,9 @@ class _ScanScreenState extends State<ScanScreen> {
   }
 
   void _showMessage(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   Future<void> _connectToDevice(BluetoothDevice device) async {
@@ -188,9 +193,16 @@ class _ScanScreenState extends State<ScanScreen> {
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Icon(Icons.bluetooth_searching, size: 64, color: Colors.grey),
+                        Icon(
+                          Icons.bluetooth_searching,
+                          size: 64,
+                          color: Colors.grey,
+                        ),
                         SizedBox(height: 16),
-                        Text('点击"开始扫描"搜索附近设备', style: TextStyle(color: Colors.grey)),
+                        Text(
+                          '点击"开始扫描"搜索附近设备',
+                          style: TextStyle(color: Colors.grey),
+                        ),
                       ],
                     ),
                   )
@@ -207,85 +219,43 @@ class _ScanScreenState extends State<ScanScreen> {
   }
 
   Widget _buildStatusCard() {
-    return Card(
-      margin: const EdgeInsets.all(16),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('状态信息', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-            const Divider(),
-            _buildStatusRow('蓝牙状态', _bluetoothOn ? '已开启' : '已关闭', _bluetoothOn ? Colors.green : Colors.red),
-            _buildStatusRow('权限状态', _permissionGranted ? '已授权' : '未授权', _permissionGranted ? Colors.green : Colors.red),
-            _buildStatusRow('发现设备', '${_scanResults.length} 个', Colors.blue),
-          ],
+    return StatusCard(
+      title: '状态信息',
+      children: [
+        StatusRow(
+          label: '蓝牙状态',
+          value: _bluetoothOn ? '已开启' : '已关闭',
+          color: _bluetoothOn ? Colors.green : Colors.red,
         ),
-      ),
-    );
-  }
-
-  Widget _buildStatusRow(String label, String value, Color color) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(label),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-            decoration: BoxDecoration(
-              color: color.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(4),
-            ),
-            child: Text(value, style: TextStyle(color: color, fontWeight: FontWeight.bold)),
-          ),
-        ],
-      ),
+        StatusRow(
+          label: '权限状态',
+          value: _permissionGranted ? '已授权' : '未授权',
+          color: _permissionGranted ? Colors.green : Colors.red,
+        ),
+        StatusRow(
+          label: '发现设备',
+          value: '${_scanResults.length} 个',
+          color: Colors.blue,
+        ),
+      ],
     );
   }
 
   Widget _buildDeviceCard(ScanResult result) {
     final device = result.device;
-    final name = device.platformName.isNotEmpty ? device.platformName : '未知设备';
-    final rssi = result.rssi;
-
-    return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      child: ListTile(
-        leading: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.bluetooth,
-              color: rssi > -60 ? Colors.green : (rssi > -80 ? Colors.orange : Colors.red),
-            ),
-            Text(
-              '$rssi dBm',
-              style: const TextStyle(fontSize: 10),
-            ),
-          ],
-        ),
-        title: Text(name),
-        subtitle: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'ID: ${device.remoteId}',
+    return DeviceListItem(
+      name: device.platformName,
+      id: device.remoteId.toString(),
+      rssi: result.rssi,
+      subtitle: result.advertisementData.serviceUuids.isNotEmpty
+          ? Text(
+              '服务: ${result.advertisementData.serviceUuids.length} 个',
               style: const TextStyle(fontSize: 12),
-            ),
-            if (result.advertisementData.serviceUuids.isNotEmpty)
-              Text(
-                '服务: ${result.advertisementData.serviceUuids.length} 个',
-                style: const TextStyle(fontSize: 12),
-              ),
-          ],
-        ),
-        trailing: ElevatedButton(
-          onPressed: () => _connectToDevice(device),
-          child: const Text('连接'),
-        ),
-        isThreeLine: true,
+            )
+          : null,
+      trailing: ElevatedButton(
+        onPressed: () => _connectToDevice(device),
+        child: const Text('连接'),
       ),
     );
   }

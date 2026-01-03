@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 /// 蓝牙服务类 - 封装 flutter_blue_plus 的常用操作
 class BleService {
@@ -37,8 +38,10 @@ class BleService {
 
   StreamSubscription? _connectionSubscription;
   StreamSubscription? _scanSubscription;
+  StreamSubscription<List<int>>? _notifySubscription;
+  BluetoothCharacteristic? _activeNotifyCharacteristic;
 
-  /// 请求蓝牙权限 (使用 flutter_blue_plus 内置方法)
+  /// 请求蓝牙权限 (Android 13+)
   Future<bool> requestPermissions() async {
     // 检查是否支持蓝牙
     if (await FlutterBluePlus.isSupported == false) {
@@ -47,21 +50,30 @@ class BleService {
 
     // Android 需要请求权限
     if (Platform.isAndroid) {
-      // 检查蓝牙是否开启，如果没有开启会自动请求开启
-      final adapterState = await FlutterBluePlus.adapterState.first;
-      if (adapterState != BluetoothAdapterState.on) {
-        // 尝试开启蓝牙
-        try {
-          await FlutterBluePlus.turnOn();
-        } catch (e) {
-          print('无法开启蓝牙: $e');
+      final statuses = await [
+        Permission.bluetoothScan,
+        Permission.bluetoothConnect,
+      ].request();
+
+      final scanGranted = statuses[Permission.bluetoothScan]?.isGranted ?? false;
+      final connectGranted = statuses[Permission.bluetoothConnect]?.isGranted ?? false;
+      final granted = scanGranted && connectGranted;
+
+      if (granted) {
+        final adapterState = await FlutterBluePlus.adapterState.first;
+        if (adapterState != BluetoothAdapterState.on) {
+          try {
+            await FlutterBluePlus.turnOn();
+          } catch (e) {
+            print('无法开启蓝牙: $e');
+          }
         }
       }
+
+      return granted;
     }
 
-    // 检查最终状态
-    final state = await FlutterBluePlus.adapterState.first;
-    return state == BluetoothAdapterState.on;
+    return true;
   }
 
   /// 检查蓝牙是否开启
@@ -86,7 +98,7 @@ class BleService {
     // 开始扫描
     await FlutterBluePlus.startScan(
       timeout: timeout,
-      androidUsesFineLocation: true,
+      androidUsesFineLocation: false,
     );
   }
 
@@ -119,6 +131,9 @@ class BleService {
           _services = [];
           _writeCharacteristic = null;
           _notifyCharacteristic = null;
+          _notifySubscription?.cancel();
+          _notifySubscription = null;
+          _activeNotifyCharacteristic = null;
         }
       });
 
@@ -145,6 +160,9 @@ class BleService {
     _services = [];
     _writeCharacteristic = null;
     _notifyCharacteristic = null;
+    _notifySubscription?.cancel();
+    _notifySubscription = null;
+    _activeNotifyCharacteristic = null;
     _connectionStateController.add(BluetoothConnectionState.disconnected);
   }
 
@@ -183,12 +201,16 @@ class BleService {
     if (char == null) return false;
 
     try {
+      await _notifySubscription?.cancel();
+      _notifySubscription = null;
+      _activeNotifyCharacteristic = null;
+
       await char.setNotifyValue(true);
 
-      // 订阅通知数据
-      char.onValueReceived.listen((value) {
+      _notifySubscription = char.onValueReceived.listen((value) {
         _receivedDataController.add(value);
       });
+      _activeNotifyCharacteristic = char;
 
       return true;
     } catch (e) {
@@ -204,6 +226,11 @@ class BleService {
 
     try {
       await char.setNotifyValue(false);
+      if (_activeNotifyCharacteristic == char) {
+        await _notifySubscription?.cancel();
+        _notifySubscription = null;
+        _activeNotifyCharacteristic = null;
+      }
       return true;
     } catch (e) {
       print('禁用通知失败: $e');
@@ -271,6 +298,9 @@ class BleService {
 
   /// 释放资源
   void dispose() {
+    _notifySubscription?.cancel();
+    _notifySubscription = null;
+    _activeNotifyCharacteristic = null;
     _scanResultsController.close();
     _connectionStateController.close();
     _receivedDataController.close();

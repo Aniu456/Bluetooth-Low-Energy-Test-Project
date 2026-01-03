@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 
 import '../services/ble_service.dart';
+import '../widgets/status_card.dart';
 import 'data_transfer_screen.dart';
 
 /// 设备详情页面 - 展示服务和特征，提供控制功能
@@ -40,9 +41,9 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
 
       if (!_isConnected && mounted) {
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('设备已断开连接')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('设备已断开连接')));
       }
     });
 
@@ -74,16 +75,20 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
   }
 
   void _showMessage(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.device.platformName.isNotEmpty ? widget.device.platformName : '设备详情'),
+        title: Text(
+          widget.device.platformName.isNotEmpty
+              ? widget.device.platformName
+              : '设备详情',
+        ),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         actions: [
           IconButton(
@@ -117,97 +122,79 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
   }
 
   Widget _buildDeviceInfoCard() {
-    return Card(
-      margin: const EdgeInsets.all(16),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(Icons.bluetooth_connected, color: _isConnected ? Colors.blue : Colors.grey),
-                const SizedBox(width: 8),
-                const Text('设备信息', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-              ],
-            ),
-            const Divider(),
-            _buildInfoRow('名称', widget.device.platformName.isEmpty ? '未知' : widget.device.platformName),
-            _buildInfoRow('ID', widget.device.remoteId.toString()),
-            _buildInfoRow('连接状态', _isConnected ? '已连接' : '已断开'),
-            if (_rssi != null) _buildInfoRow('信号强度', '$_rssi dBm'),
-            if (_mtu != null) _buildInfoRow('MTU', '$_mtu'),
-            _buildInfoRow('服务数量', '${_bleService.services.length}'),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildInfoRow(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    return StatusCard(
+      titleWidget: Row(
         children: [
-          Text(label, style: const TextStyle(color: Colors.grey)),
-          Text(value, style: const TextStyle(fontWeight: FontWeight.w500)),
+          Icon(
+            Icons.bluetooth_connected,
+            color: _isConnected ? Colors.blue : Colors.grey,
+          ),
+          const SizedBox(width: 8),
+          const Text(
+            '设备信息',
+            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+          ),
         ],
       ),
+      children: [
+        StatusRow(
+          label: '名称',
+          value: widget.device.platformName.isEmpty
+              ? '未知'
+              : widget.device.platformName,
+        ),
+        StatusRow(label: 'ID', value: widget.device.remoteId.toString()),
+        StatusRow(label: '连接状态', value: _isConnected ? '已连接' : '已断开'),
+        if (_rssi != null) StatusRow(label: '信号强度', value: '$_rssi dBm'),
+        if (_mtu != null) StatusRow(label: 'MTU', value: '$_mtu'),
+        StatusRow(label: '服务数量', value: '${_bleService.services.length}'),
+      ],
     );
   }
 
   Widget _buildQuickActions() {
-    return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 16),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+    return StatusCard(
+      title: '快捷操作',
+      children: [
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
           children: [
-            const Text('快捷操作', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-            const Divider(),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                ElevatedButton.icon(
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => const DataTransferScreen(),
-                      ),
-                    );
-                  },
-                  icon: const Icon(Icons.send),
-                  label: const Text('数据传输测试'),
-                ),
-                ElevatedButton.icon(
-                  onPressed: () async {
-                    _rssi = await _bleService.readRssi();
-                    setState(() {});
-                    _showMessage('RSSI: $_rssi dBm');
-                  },
-                  icon: const Icon(Icons.signal_cellular_alt),
-                  label: const Text('读取信号'),
-                ),
-                ElevatedButton.icon(
-                  onPressed: () async {
-                    final mtu = await _bleService.requestMtu(512);
-                    setState(() {
-                      _mtu = mtu;
-                    });
-                    _showMessage('MTU: $mtu');
-                  },
-                  icon: const Icon(Icons.tune),
-                  label: const Text('请求 MTU'),
-                ),
-              ],
+            ElevatedButton.icon(
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const DataTransferScreen(),
+                  ),
+                );
+              },
+              icon: const Icon(Icons.send),
+              label: const Text('数据传输测试'),
+            ),
+            ElevatedButton.icon(
+              onPressed: () async {
+                _rssi = await _bleService.readRssi();
+                setState(() {});
+                _showMessage('RSSI: $_rssi dBm');
+              },
+              icon: const Icon(Icons.signal_cellular_alt),
+              label: const Text('读取信号'),
+            ),
+            ElevatedButton.icon(
+              onPressed: () async {
+                final mtu = await _bleService.requestMtu(512);
+                setState(() {
+                  _mtu = mtu;
+                });
+                _showMessage('MTU: $mtu');
+              },
+              icon: const Icon(Icons.tune),
+              label: const Text('请求 MTU'),
             ),
           ],
         ),
-      ),
+      ],
     );
   }
 
@@ -222,8 +209,14 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text('服务和特征', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-              Text('${services.length} 个服务', style: const TextStyle(color: Colors.grey)),
+              const Text(
+                '服务和特征',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+              ),
+              Text(
+                '${services.length} 个服务',
+                style: const TextStyle(color: Colors.grey),
+              ),
             ],
           ),
           const SizedBox(height: 8),
@@ -262,7 +255,9 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
           uuid.toUpperCase(),
           style: const TextStyle(fontSize: 10),
         ),
-        children: service.characteristics.map((c) => _buildCharacteristicTile(c)).toList(),
+        children: service.characteristics
+            .map((c) => _buildCharacteristicTile(c))
+            .toList(),
       ),
     );
   }
@@ -280,7 +275,8 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
       dense: true,
       leading: const Icon(Icons.settings_input_component, size: 20),
       title: Text(
-        _getCharacteristicName(characteristic.uuid.toString()) ?? characteristic.uuid.toString().substring(0, 8),
+        _getCharacteristicName(characteristic.uuid.toString()) ??
+            characteristic.uuid.toString().substring(0, 8),
         style: const TextStyle(fontSize: 14),
       ),
       subtitle: Text(
@@ -313,7 +309,9 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
     );
   }
 
-  Future<void> _readCharacteristic(BluetoothCharacteristic characteristic) async {
+  Future<void> _readCharacteristic(
+    BluetoothCharacteristic characteristic,
+  ) async {
     final data = await _bleService.readData(characteristic);
     if (data != null) {
       _showDataDialog('读取结果', data);
@@ -322,7 +320,9 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
     }
   }
 
-  Future<void> _writeCharacteristic(BluetoothCharacteristic characteristic) async {
+  Future<void> _writeCharacteristic(
+    BluetoothCharacteristic characteristic,
+  ) async {
     final controller = TextEditingController();
 
     showDialog(
@@ -353,7 +353,8 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
 
               // 尝试解析为十六进制
               List<int> data;
-              if (RegExp(r'^[0-9A-Fa-f]+$').hasMatch(text) && text.length % 2 == 0) {
+              if (RegExp(r'^[0-9A-Fa-f]+$').hasMatch(text) &&
+                  text.length % 2 == 0) {
                 data = [];
                 for (int i = 0; i < text.length; i += 2) {
                   data.add(int.parse(text.substring(i, i + 2), radix: 16));
@@ -396,8 +397,13 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
   }
 
   void _showDataDialog(String title, List<int> data) {
-    final hexString = data.map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ').toUpperCase();
-    final textString = String.fromCharCodes(data.where((b) => b >= 32 && b < 127));
+    final hexString = data
+        .map((b) => b.toRadixString(16).padLeft(2, '0'))
+        .join(' ')
+        .toUpperCase();
+    final textString = String.fromCharCodes(
+      data.where((b) => b >= 32 && b < 127),
+    );
 
     showDialog(
       context: context,
@@ -442,13 +448,21 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
               }
 
               final data = snapshot.data!;
-              final hexString = data.map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ').toUpperCase();
-              final textString = String.fromCharCodes(data.where((b) => b >= 32 && b < 127));
+              final hexString = data
+                  .map((b) => b.toRadixString(16).padLeft(2, '0'))
+                  .join(' ')
+                  .toUpperCase();
+              final textString = String.fromCharCodes(
+                data.where((b) => b >= 32 && b < 127),
+              );
 
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('最新数据:', style: TextStyle(fontWeight: FontWeight.bold)),
+                  const Text(
+                    '最新数据:',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
                   const SizedBox(height: 4),
                   Text('HEX: $hexString'),
                   Text('TXT: ${textString.isEmpty ? "(无)" : textString}'),

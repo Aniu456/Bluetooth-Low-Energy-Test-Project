@@ -31,27 +31,81 @@ class _DataTransferScreenState extends State<DataTransferScreen> {
   bool _isNotifying = false;
 
   StreamSubscription? _dataSubscription;
+  StreamSubscription<BluetoothConnectionState>? _connectionSubscription;
 
   @override
   void initState() {
     super.initState();
     _initializeCharacteristics();
     _subscribeToData();
+    _subscribeConnectionState();
   }
 
   void _initializeCharacteristics() {
-    // 自动选择第一个可用的写入和通知特征
+    final writeChars = _collectWriteCharacteristics();
+    final notifyChars = _collectNotifyCharacteristics();
+
+    setState(() {
+      _selectedWriteChar = writeChars.isNotEmpty ? writeChars.first : null;
+      _selectedNotifyChar = notifyChars.isNotEmpty ? notifyChars.first : null;
+    });
+  }
+
+  List<BluetoothCharacteristic> _collectWriteCharacteristics() {
+    final writeChars = <BluetoothCharacteristic>[];
     for (var service in _bleService.services) {
       for (var char in service.characteristics) {
-        if (_selectedWriteChar == null && (char.properties.write || char.properties.writeWithoutResponse)) {
-          _selectedWriteChar = char;
-        }
-        if (_selectedNotifyChar == null && (char.properties.notify || char.properties.indicate)) {
-          _selectedNotifyChar = char;
+        if (char.properties.write || char.properties.writeWithoutResponse) {
+          writeChars.add(char);
         }
       }
     }
-    setState(() {});
+    return writeChars;
+  }
+
+  List<BluetoothCharacteristic> _collectNotifyCharacteristics() {
+    final notifyChars = <BluetoothCharacteristic>[];
+    for (var service in _bleService.services) {
+      for (var char in service.characteristics) {
+        if (char.properties.notify || char.properties.indicate) {
+          notifyChars.add(char);
+        }
+      }
+    }
+    return notifyChars;
+  }
+
+  void _ensureValidSelections(
+    List<BluetoothCharacteristic> writeChars,
+    List<BluetoothCharacteristic> notifyChars,
+  ) {
+    final newWrite = _isCharacteristicAvailable(_selectedWriteChar, writeChars)
+        ? _selectedWriteChar
+        : (writeChars.isNotEmpty ? writeChars.first : null);
+    final newNotify = _isCharacteristicAvailable(_selectedNotifyChar, notifyChars)
+        ? _selectedNotifyChar
+        : (notifyChars.isNotEmpty ? notifyChars.first : null);
+
+    if (newWrite != _selectedWriteChar || newNotify != _selectedNotifyChar) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        setState(() {
+          _selectedWriteChar = newWrite;
+          _selectedNotifyChar = newNotify;
+          if (newNotify == null) {
+            _isNotifying = false;
+          }
+        });
+      });
+    }
+  }
+
+  bool _isCharacteristicAvailable(
+    BluetoothCharacteristic? characteristic,
+    List<BluetoothCharacteristic> list,
+  ) {
+    if (characteristic == null) return false;
+    return list.contains(characteristic);
   }
 
   void _subscribeToData() {
@@ -64,11 +118,24 @@ class _DataTransferScreenState extends State<DataTransferScreen> {
     });
   }
 
+  void _subscribeConnectionState() {
+    _connectionSubscription = _bleService.connectionState.listen((state) {
+      if (state == BluetoothConnectionState.disconnected) {
+        if (mounted) {
+          setState(() {
+            _isNotifying = false;
+          });
+        }
+      }
+    });
+  }
+
   @override
   void dispose() {
     _sendController.dispose();
     _scrollController.dispose();
     _dataSubscription?.cancel();
+    _connectionSubscription?.cancel();
     if (_isNotifying && _selectedNotifyChar != null) {
       _bleService.disableNotifications(_selectedNotifyChar);
     }
@@ -100,11 +167,13 @@ class _DataTransferScreenState extends State<DataTransferScreen> {
   }
 
   Future<void> _sendData() async {
-    if (_selectedWriteChar == null) {
+    final writeChars = _collectWriteCharacteristics();
+    if (!_isCharacteristicAvailable(_selectedWriteChar, writeChars)) {
       _showMessage('请先选择写入特征');
       return;
     }
 
+    final writeChar = _selectedWriteChar!;
     final text = _sendController.text;
     if (text.isEmpty) return;
 
@@ -126,8 +195,8 @@ class _DataTransferScreenState extends State<DataTransferScreen> {
 
     final success = await _bleService.writeData(
       data,
-      characteristic: _selectedWriteChar,
-      withResponse: _selectedWriteChar!.properties.write,
+      characteristic: writeChar,
+      withResponse: writeChar.properties.write,
     );
 
     if (success) {
@@ -143,13 +212,15 @@ class _DataTransferScreenState extends State<DataTransferScreen> {
   }
 
   Future<void> _toggleNotify() async {
-    if (_selectedNotifyChar == null) {
+    final notifyChars = _collectNotifyCharacteristics();
+    if (!_isCharacteristicAvailable(_selectedNotifyChar, notifyChars)) {
       _showMessage('请先选择通知特征');
       return;
     }
 
+    final notifyChar = _selectedNotifyChar!;
     if (_isNotifying) {
-      final success = await _bleService.disableNotifications(_selectedNotifyChar);
+      final success = await _bleService.disableNotifications(notifyChar);
       if (success) {
         setState(() {
           _isNotifying = false;
@@ -157,7 +228,7 @@ class _DataTransferScreenState extends State<DataTransferScreen> {
         _showMessage('已停止接收');
       }
     } else {
-      final success = await _bleService.enableNotifications(_selectedNotifyChar);
+      final success = await _bleService.enableNotifications(notifyChar);
       if (success) {
         setState(() {
           _isNotifying = true;
@@ -214,19 +285,11 @@ class _DataTransferScreenState extends State<DataTransferScreen> {
   }
 
   Widget _buildCharacteristicSelector() {
-    final writeChars = <BluetoothCharacteristic>[];
-    final notifyChars = <BluetoothCharacteristic>[];
-
-    for (var service in _bleService.services) {
-      for (var char in service.characteristics) {
-        if (char.properties.write || char.properties.writeWithoutResponse) {
-          writeChars.add(char);
-        }
-        if (char.properties.notify || char.properties.indicate) {
-          notifyChars.add(char);
-        }
-      }
-    }
+    final writeChars = _collectWriteCharacteristics();
+    final notifyChars = _collectNotifyCharacteristics();
+    _ensureValidSelections(writeChars, notifyChars);
+    final selectedWriteChar = _isCharacteristicAvailable(_selectedWriteChar, writeChars) ? _selectedWriteChar : null;
+    final selectedNotifyChar = _isCharacteristicAvailable(_selectedNotifyChar, notifyChars) ? _selectedNotifyChar : null;
 
     return Card(
       margin: const EdgeInsets.all(8),
@@ -244,7 +307,7 @@ class _DataTransferScreenState extends State<DataTransferScreen> {
                 const Text('写入: ', style: TextStyle(fontSize: 12)),
                 Expanded(
                   child: DropdownButton<BluetoothCharacteristic>(
-                    value: _selectedWriteChar,
+                    value: selectedWriteChar,
                     isExpanded: true,
                     hint: const Text('选择写入特征'),
                     items: writeChars.map((char) {
@@ -272,7 +335,7 @@ class _DataTransferScreenState extends State<DataTransferScreen> {
                 const Text('通知: ', style: TextStyle(fontSize: 12)),
                 Expanded(
                   child: DropdownButton<BluetoothCharacteristic>(
-                    value: _selectedNotifyChar,
+                    value: selectedNotifyChar,
                     isExpanded: true,
                     hint: const Text('选择通知特征'),
                     items: notifyChars.map((char) {
@@ -284,10 +347,34 @@ class _DataTransferScreenState extends State<DataTransferScreen> {
                         ),
                       );
                     }).toList(),
-                    onChanged: (char) {
-                      setState(() {
-                        _selectedNotifyChar = char;
-                      });
+                    onChanged: (char) async {
+                      if (char == null) return;
+
+                      if (_isNotifying && char != _selectedNotifyChar) {
+                        final previousChar = _selectedNotifyChar;
+                        final disabled = previousChar == null || await _bleService.disableNotifications(previousChar);
+
+                        if (!disabled) {
+                          _showMessage('切换通知特征失败');
+                          return;
+                        }
+
+                        final enabled = await _bleService.enableNotifications(char);
+
+                        if (!mounted) return;
+                        setState(() {
+                          _selectedNotifyChar = char;
+                          _isNotifying = enabled;
+                        });
+
+                        if (!enabled) {
+                          _showMessage('切换通知特征失败');
+                        }
+                      } else {
+                        setState(() {
+                          _selectedNotifyChar = char;
+                        });
+                      }
                     },
                   ),
                 ),
@@ -496,15 +583,17 @@ class _DataTransferScreenState extends State<DataTransferScreen> {
       padding: const EdgeInsets.only(right: 8),
       child: OutlinedButton(
         onPressed: () async {
-          if (_selectedWriteChar == null) {
+          final writeChars = _collectWriteCharacteristics();
+          if (!_isCharacteristicAvailable(_selectedWriteChar, writeChars)) {
             _showMessage('请先选择写入特征');
             return;
           }
 
+          final writeChar = _selectedWriteChar!;
           final success = await _bleService.writeData(
             data,
-            characteristic: _selectedWriteChar,
-            withResponse: _selectedWriteChar!.properties.write,
+            characteristic: writeChar,
+            withResponse: writeChar.properties.write,
           );
 
           if (success) {
